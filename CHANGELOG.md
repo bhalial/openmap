@@ -1,5 +1,14 @@
 # OpenMap changelog
 
+## Unreleased
+
+### Fixed
+
+- **Places to explore count what you've explored, in every zone**: a zone long explored still read 6 of 12
+  (Elwynn) or 0 of 16 (Tirisfal). The game lists the pieces of a zone's newer map art, the same places in
+  other sizes, and they were matched against the older art's whole size and place. A piece now counts when
+  the game lists one at its place, or says its ground is explored (#445, #478). By bhalial.
+
 ## v0.8.13 (2026-11-22)
 
 ### Fixed
