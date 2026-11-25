@@ -114,17 +114,32 @@ ns.L = setmetatable({}, { __index = function(_, k) return k end })
 mod = { defaults = {}, db = {} }
 function ns:GetModule() return mod end
 -- the game's own list of what's explored: Elwynn's pieces marked explored in `unexplored`
+redrawn = nil                   -- px: the game lists the zone's newer art's pieces, other sizes and that far off
+ground = {}                     -- area ID -> true: the areas the game says are explored (at any position)
 C_MapExplorationInfo = { GetExploredMapTextures = function(mapID)
     local out = {}
     if mapID ~= 1429 then return out end
     for key, un in pairs(unexplored) do
         if un == false then
             local w, h, x, y = key:match("^(%d+):(%d+):(%d+):(%d+)$")
-            out[#out + 1] = { textureWidth = tonumber(w), textureHeight = tonumber(h), offsetX = tonumber(x), offsetY = tonumber(y) }
+            w, h, x, y = tonumber(w), tonumber(h), tonumber(x), tonumber(y)
+            if redrawn then w, h, x, y = 256, 256, x + redrawn, y - redrawn end
+            out[#out + 1] = { textureWidth = w, textureHeight = h, offsetX = x, offsetY = y }
         end
     end
     return out
+end, GetExploredAreaIDsAtPosition = function(mapID, pos)
+    local out = {}
+    if mapID ~= 1429 or not (pos and pos.x and pos.y) then return out end
+    for area in pairs(ground) do out[#out + 1] = area end
+    return out
 end }
+CreateVector2D = function(x, y) return { x = x, y = y } end
+function strsplit(sep, s)
+    local out = {}
+    for part in (s .. sep):gmatch("(.-)%" .. sep) do out[#out + 1] = part end
+    return unpack(out)
+end
 events = {}
 function ns.RegisterEvent(owner, event, fn) events[event] = fn end
 function wipe(t) for k in pairs(t) do t[k] = nil end return t end
@@ -216,6 +231,38 @@ class ModuleTests(unittest.TestCase):
         self.mod.db.explore = True
         self.view(8)
         self.assertEqual(len(items(self.made["explore%d" % ELWYNN].pins)), self.pieces - 1)
+
+    def explore_all(self):
+        for key, _ in items(self.lua.eval("ns.MapExplore.pieces[%d]" % ELWYNN_ART)):
+            self.lua.eval("unexplored")[key] = False
+
+    def test_the_zones_newer_art_the_same_places_in_other_sizes(self):
+        # (the game lists the pieces of the zone's newer art: the same places, other sizes, a px or two off.
+        # Matched on the whole key a zone long explored read 6/12, Elwynn, or 0/16, Tirisfal: #445 #478)
+        self.lua.execute("redrawn = 3")
+        self.explore_all()
+        self.mod.db.explore = True
+        self.view(8)
+        self.assertEqual(len(items(self.made["explore%d" % ELWYNN].pins)), 0)
+
+    def test_a_piece_somewhere_else_isnt_it(self):
+        # (20 px off: another piece, or this one redrawn elsewhere; only its ground can say)
+        self.lua.execute("redrawn = 20")
+        self.explore_all()
+        self.mod.db.explore = True
+        self.view(8)
+        self.assertEqual(len(items(self.made["explore%d" % ELWYNN].pins)), self.pieces)
+
+    def test_a_piece_redrawn_elsewhere_by_its_ground(self):
+        # (no piece of the game's at its place, but the game says its own area is explored where its pin is)
+        pieces = self.lua.eval("ns.MapExplore.pieces[%d]" % ELWYNN_ART)
+        key = sorted(k for k, _ in items(pieces))[0]
+        area = pieces[key][2][1]
+        self.lua.eval("ground")[area] = True
+        mine = sum(1 for _, p in items(pieces) if area in [a for _, a in items(p[2])])
+        self.mod.db.explore = True
+        self.view(8)
+        self.assertEqual(len(items(self.made["explore%d" % ELWYNN].pins)), self.pieces - mine)
 
     def test_made_again_when_the_game_says_something_was_explored(self):
         self.mod.db.explore = True
