@@ -165,6 +165,8 @@ class ModuleTests(unittest.TestCase):
             (ADDON / "Map" / "Explore.lua").read_text(encoding="utf-8"))
         fn("OpenMap", self.lua.eval("ns"))
         self.mod = self.lua.eval("mod")
+        # (WorldMap.lua's Setup hands it the map once Blizzard's map has loaded)
+        self.lua.execute("mod:SetupExplore(WorldMapFrame)")
         self.made = self.lua.eval("Made()")
         self.pieces = len(items(self.lua.eval("ns.MapExplore.pieces[%d]" % ELWYNN_ART)))
 
@@ -293,6 +295,7 @@ class ModuleTests(unittest.TestCase):
         self.lua.execute("for k in pairs(Made()) do Made()[k] = nil end S.viewHooks = {} S.exploredHooks = {}")
         fn = self.lua.eval("function(src) return assert(loadstring(src, 'Explore.lua')) end")(src)
         fn("OpenMap", self.lua.eval("ns"))
+        self.lua.execute("mod:SetupExplore(WorldMapFrame)")
         self.mod.db.explore = True
 
     def test_out_of_view_let_go_past_the_budget(self):
@@ -347,6 +350,39 @@ class ModuleTests(unittest.TestCase):
         self.assertGreater(elwynn.cleared, cleared)
         self.assertGreater(counts.cleared, countsCleared)
         self.assertEqual(len(items(elwynn.pins)), self.pieces - 1)
+
+    def test_explored_with_the_map_closed_cleared_at_the_next_opening_map_loaded_later(self):
+        # (Blizzard's map not there as Explore.lua loads: its hook at load never was, and a place explored with
+        # the map closed kept its outline and pin until a /reload, the "newly explored not losing the mark")
+        self.lua = LuaRuntime(unpack_returned_tuples=True)
+        load_data(self.lua)
+        self.lua.execute(STUB + "\nrealMap = WorldMapFrame WorldMapFrame = nil")
+        fn = self.lua.eval("function(src) return assert(loadstring(src, 'Explore.lua')) end")(
+            (ADDON / "Map" / "Explore.lua").read_text(encoding="utf-8"))
+        fn("OpenMap", self.lua.eval("ns"))
+        self.mod, self.made = self.lua.eval("mod"), self.lua.eval("Made()")
+        self.lua.execute("mod:SetupExplore(realMap)")       # (later, from WorldMap.lua's Setup)
+        self.mod.db.explore = True
+        self.lua.execute("mapShown = true")
+        self.view(8)
+        self.lua.execute("mapShown = false")
+        key = sorted(k for k, _ in items(self.lua.eval("ns.MapExplore.pieces[%d]" % ELWYNN_ART)))[0]
+        self.lua.eval("unexplored")[key] = False
+        self.lua.eval("events.MAP_EXPLORATION_UPDATED")()  # (explored with the map closed)
+        self.lua.execute("mapShown = true realMap.onShow()")
+        self.view(8)
+        self.assertEqual(len(items(self.made["explore%d" % ELWYNN].pins)), self.pieces - 1)
+
+    def test_explored_before_login_counted_at_the_first_opening(self):
+        # (the outlines and counts made at login, before the game sent what's explored: put right as the map
+        # first opens, the "explored areas never losing the mark")
+        self.mod.db.explore = True
+        self.mod.RefreshExplore()                            # (login: nothing explored known yet)
+        key = sorted(k for k, _ in items(self.lua.eval("ns.MapExplore.pieces[%d]" % ELWYNN_ART)))[0]
+        self.lua.eval("unexplored")[key] = False             # (the game's data comes in)
+        self.lua.execute("mapShown = true WorldMapFrame.onShow()")
+        self.view(8)
+        self.assertEqual(len(items(self.made["explore%d" % ELWYNN].pins)), self.pieces - 1)
 
 
 if __name__ == "__main__":

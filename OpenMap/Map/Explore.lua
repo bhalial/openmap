@@ -276,14 +276,19 @@ end)
 -- the game says something was explored (or sent what you'd explored, after login): made again, at once with
 -- the map open, else as it next opens; and at the first opening of a session, what it holds by then. (Into a new
 -- subzone too: a place explored can come without that event, #422)
-local owner, pending = {}, true
+-- (the map is WorldMap.lua's, hooked from its Setup: Blizzard's map can load after this file, and a hook made
+-- here, on a map not there yet, never was: explored since, a place kept its outline and pin until a /reload)
+local owner, pending, theMap = {}, true, nil
 local function Explored()
-	if WorldMapFrame and WorldMapFrame:IsShown() and mod.db and mod.db.explore then mod.RefreshExplore() else pending = true end
+	if theMap and theMap:IsShown() and mod.db and mod.db.explore then mod.RefreshExplore() else pending = true end
 end
 ns.RegisterEvent(owner, "MAP_EXPLORATION_UPDATED", Explored)
 ns.RegisterEvent(owner, "ZONE_CHANGED", Explored)
-if WorldMapFrame then
-	WorldMapFrame:HookScript("OnShow", function()
+ns.RegisterEvent(owner, "ZONE_CHANGED_NEW_AREA", Explored)
+function mod:SetupExplore(worldMap)
+	if theMap or not worldMap then return end
+	theMap = worldMap
+	worldMap:HookScript("OnShow", function()
 		if not pending or not (mod.db and mod.db.explore) then return end
 		pending = false
 		C_Timer.After(0, function() if On() then mod.RefreshExplore() end end)
